@@ -6,7 +6,7 @@ import ReactDOM from 'react-dom/client';
 import AppRouter from './routes/AppRouter';
 import { FormStateProvider } from './Contexts/FormStateContext.tsx';
 import { Provider } from 'react-redux';
-import { store } from './redux/store.ts';
+import { store } from './store/store.ts';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

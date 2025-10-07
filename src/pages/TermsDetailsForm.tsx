@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
-import FormActionButtons from "../FormComponents/FormActionButton";
-import TextInput from "../FormComponents/TextInput";
-import SelectInput from "../FormComponents/SelectInput";
-import CheckboxInput from "../FormComponents/CheckboxInput";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { db } from "../../Database/firebase";
+import { db } from "../Database/firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
-import { usePartyCode } from "../../Contexts/PartyCodeContext";
-import { useFormState } from "../../Contexts/FormStateContext";
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState, AppDispatch } from '../store/store';
+import { setCurrentStep } from '../store/slices/kycSlice';
+import { setTermsDetails } from '../store/slices/termsDetailsSlice';
+import SelectInput from "../Components/FormComponents/SelectInput";
+import TextInput from "../Components/FormComponents/TextInput";
+import CheckboxInput from "../Components/FormComponents/CheckboxInput";
+import FormActionButtons from "../Components/FormComponents/FormActionButton";
 
 // --- Tailwind class strings ---
 const containerClass = "bg-white p-6 rounded-lg shadow-sm border border-gray-200";
@@ -70,13 +72,15 @@ const validationSchema = Yup.object({
 
 export default function TermsDetailsForm() {
   const navigate = useNavigate();
-  const { state, dispatch } = useFormState();
+  const dispatch = useDispatch<AppDispatch>();
+  const termsDetails = useSelector((state: RootState) => state.termsDetails);
+  const { partyCode, isEditing } = useSelector((state: RootState) => state.kyc);
   const [searchParams] = useSearchParams();
   const partyCodeFromUrl = searchParams.get('partyCode');
   const [loading, setLoading] = useState(!!partyCodeFromUrl);
 
   const formik = useFormik({
-    initialValues: state.terms || {
+    initialValues: termsDetails || {
       currency: '',
       dayTerms: '',
       termName: '',
@@ -96,19 +100,19 @@ export default function TermsDetailsForm() {
     onSubmit: async (values) => {
       console.log('✅ Submitted Values:', values);
 
-      const partyCode = state.partyCode || partyCodeFromUrl;
-      if (!partyCode) {
+      const effectivePartyCode = partyCode || partyCodeFromUrl;
+      if (!effectivePartyCode) {
         alert('No Party Code found! Please go back and fill in Basic Details.');
         navigate('/');
         return;
       }
 
       try {
-        const termsDetailsRef = doc(db, 'kyc', partyCode, 'TermsDetails', 'TermsDetails');
+        const termsDetailsRef = doc(db, 'kyc', effectivePartyCode, 'TermsDetails', 'TermsDetails');
         await setDoc(termsDetailsRef, { ...values, updatedAt: new Date() }, { merge: true });
 
-        dispatch({ type: 'SET_TERMS', payload: values });
-        dispatch({ type: 'SET_CURRENT_STEP', payload: 'user' });
+        dispatch(setTermsDetails(values));
+        dispatch(setCurrentStep('user'));
         alert('Terms Details saved successfully!');
       } catch (error) {
         console.error('Error saving TermsDetails to Firebase:', error);
@@ -130,7 +134,7 @@ export default function TermsDetailsForm() {
       formik.setSubmitting(true);
       try {
         await formik.submitForm();
-        navigate(`/user${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`);
+        navigate(`/user${partyCode ? `?partyCode=${partyCode}` : ''}`);
       } catch (error) {
         console.error('Error during form submission:', error);
         alert('Failed to save and proceed.');
@@ -144,7 +148,7 @@ export default function TermsDetailsForm() {
 
   useEffect(() => {
     const fetchExistingData = async () => {
-      if (!partyCodeFromUrl || !state.isEditing) {
+      if (!partyCodeFromUrl || !isEditing) {
         setLoading(false);
         return;
       }
@@ -178,7 +182,7 @@ export default function TermsDetailsForm() {
           brokerComm1: termsData.brokerComm1 || '',
         };
 
-        dispatch({ type: 'SET_TERMS', payload: initializedData });
+        dispatch(setTermsDetails(initializedData));
         setLoading(false);
       } catch (error) {
         console.error('Error loading Terms Details:', error);
@@ -188,7 +192,7 @@ export default function TermsDetailsForm() {
     };
 
     fetchExistingData();
-  }, [partyCodeFromUrl, state.isEditing, dispatch, navigate]);
+  }, [partyCodeFromUrl, isEditing, dispatch, navigate]);
 
   if (loading) {
     return <div className="p-6 text-center">Loading Terms Details...</div>;
@@ -312,7 +316,7 @@ export default function TermsDetailsForm() {
 
       {/* Buttons */}
       <FormActionButtons
-        onPrevious={() => navigate(`/${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`)}
+        onPrevious={() => navigate(`/${partyCode ? `?partyCode=${partyCode}` : ''}`)}
         onSaveNext={handleSaveAndNext}
         onSave={formik.handleSubmit}
         onReset={formik.handleReset}

@@ -1,7 +1,7 @@
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
 import { useNavigate } from 'react-router-dom';
-import Account from './Account';
+import Account from '../Components/Account';
 
 const LoginPage = () => {
   const navigate = useNavigate();

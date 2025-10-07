@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import FormActionButtons from '../FormComponents/FormActionButton';
-import TextInput from '../FormComponents/TextInput';
-import SelectInput from '../FormComponents/SelectInput';
-import CheckboxInput from '../FormComponents/CheckboxInput';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { db } from "../../Database/firebase";
+import { db } from "../Database/firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
-import { usePartyCode } from "../../Contexts/PartyCodeContext";
-import { useFormState } from '../../Contexts/FormStateContext';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState, AppDispatch } from '../store/store';
+import { setCurrentStep } from '../store/slices/kycSlice';
+import { setUserDetails } from '../store/slices/userDetailsSlice';
+import SelectInput from '../Components/FormComponents/SelectInput';
+import TextInput from '../Components/FormComponents/TextInput';
+import CheckboxInput from '../Components/FormComponents/CheckboxInput';
+import FormActionButtons from '../Components/FormComponents/FormActionButton';
 
 // --- Tailwind classes ---
 const containerClass = "bg-white p-6 rounded-lg shadow-sm border border-gray-200";
@@ -31,48 +33,46 @@ const validationSchema = Yup.object({
   confirmPassword: Yup.string()
     .oneOf([Yup.ref('password')], 'Passwords must match')
     .required('Confirm Password is required'),
-
   mobile: Yup.string()
     .nullable()
     .test('is-valid-mobile', 'Mobile must be 10 digits', (value) => {
       return !value || /^[0-9]{10}$/.test(value);
     }),
-
   location: Yup.string(),
-
   apiUser: Yup.boolean(),
-
-  discountMumbai:Yup.string()
-      .nullable()
-      .test("is-decimal", "must be a positive number", value =>
-        !value || /^[0-9]*\.?[0-9]+$/.test(value)
-      ),
+  discountMumbai: Yup.string()
+    .nullable()
+    .test("is-decimal", "must be a positive number", value =>
+      !value || /^[0-9]*\.?[0-9]+$/.test(value)
+    ),
   discountHK: Yup.string()
-      .nullable()
-      .test("is-decimal", "must be a positive number", value =>
-        !value || /^[0-9]*\.?[0-9]+$/.test(value)
-      ),
+    .nullable()
+    .test("is-decimal", "must be a positive number", value =>
+      !value || /^[0-9]*\.?[0-9]+$/.test(value)
+    ),
   discountNY: Yup.string()
-      .nullable()
-      .test("is-decimal", "must be a positive number", value =>
-        !value || /^[0-9]*\.?[0-9]+$/.test(value)
-      ),
+    .nullable()
+    .test("is-decimal", "must be a positive number", value =>
+      !value || /^[0-9]*\.?[0-9]+$/.test(value)
+    ),
   discountBelgium: Yup.string()
-      .nullable()
-      .test("is-decimal", "must be a positive number", value =>
-        !value || /^[0-9]*\.?[0-9]+$/.test(value)
-      ),
+    .nullable()
+    .test("is-decimal", "must be a positive number", value =>
+      !value || /^[0-9]*\.?[0-9]+$/.test(value)
+    ),
 });
 
 export default function UserDetailsForm() {
   const navigate = useNavigate();
-  const { state, dispatch } = useFormState();
+  const dispatch = useDispatch<AppDispatch>();
+  const userDetails = useSelector((state: RootState) => state.userDetails);
+  const { partyCode, isEditing } = useSelector((state: RootState) => state.kyc);
   const [searchParams] = useSearchParams();
   const partyCodeFromUrl = searchParams.get('partyCode');
   const [loading, setLoading] = useState(!!partyCodeFromUrl);
 
   const formik = useFormik({
-    initialValues: state.user || {
+    initialValues: userDetails || {
       terms: '',
       role: '',
       username: '',
@@ -87,29 +87,29 @@ export default function UserDetailsForm() {
       discountNY: '',
       discountBelgium: '',
     },
-    validationSchema: validationSchema,
+    validationSchema,
     enableReinitialize: true,
     onSubmit: async (values) => {
       console.log('✅ Submitted Values:', values);
 
-      const partyCode = state.partyCode || partyCodeFromUrl;
-      if (!partyCode) {
+      const effectivePartyCode = partyCode || partyCodeFromUrl;
+      if (!effectivePartyCode) {
         alert('No Party Code found! Please go back and fill in Basic Details.');
         navigate('/');
         return;
       }
 
       try {
-        const userDetailsRef = doc(db, 'kyc', partyCode, 'UserDetails', 'UserDetails');
+        const userDetailsRef = doc(db, 'kyc', effectivePartyCode, 'UserDetails', 'UserDetails');
         const saveValues = { ...values, updatedAt: new Date() };
-        if (state.isEditing && !values.password) {
+        if (isEditing && !values.password) {
           delete saveValues.password;
           delete saveValues.confirmPassword;
         }
         await setDoc(userDetailsRef, saveValues, { merge: true });
 
-        dispatch({ type: 'SET_USER', payload: values });
-        dispatch({ type: 'SET_CURRENT_STEP', payload: 'address' });
+        dispatch(setUserDetails(values));
+        dispatch(setCurrentStep('address'));
         alert('User Details saved successfully!');
       } catch (error) {
         console.error('Error saving UserDetails to Firebase:', error);
@@ -131,7 +131,7 @@ export default function UserDetailsForm() {
       formik.setSubmitting(true);
       try {
         await formik.submitForm();
-        navigate(`/address${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`);
+        navigate(`/address${partyCode ? `?partyCode=${partyCode}` : ''}`);
       } catch (error) {
         console.error('Error during form submission:', error);
         alert('Failed to save and proceed.');
@@ -145,7 +145,7 @@ export default function UserDetailsForm() {
 
   useEffect(() => {
     const fetchExistingData = async () => {
-      if (!partyCodeFromUrl || !state.isEditing) {
+      if (!partyCodeFromUrl || !isEditing) {
         setLoading(false);
         return;
       }
@@ -178,7 +178,7 @@ export default function UserDetailsForm() {
           discountBelgium: userData.discountBelgium || '',
         };
 
-        dispatch({ type: 'SET_USER', payload: initializedData });
+        dispatch(setUserDetails(initializedData));
         setLoading(false);
       } catch (error) {
         console.error('Error loading User Details:', error);
@@ -188,7 +188,7 @@ export default function UserDetailsForm() {
     };
 
     fetchExistingData();
-  }, [partyCodeFromUrl, state.isEditing, dispatch, navigate]);
+  }, [partyCodeFromUrl, isEditing, dispatch, navigate]);
 
   if (loading) {
     return <div className="p-6 text-center">Loading User Details...</div>;
@@ -260,18 +260,18 @@ export default function UserDetailsForm() {
           type="tel"
           placeholder="Enter Mobile No"
           formik={{
-                ...formik,
-                handleChange: (e) => {
-                  const { name, value } = e.target;
-                  if (/^\d*$/.test(value) && value.length <= 10) {
-                    formik.setFieldValue(name, value);
-                  }
-                },
-                handleBlur: formik.handleBlur,
-                values: formik.values,
-                errors: formik.errors,
-                touched: formik.touched,
-              }}
+            ...formik,
+            handleChange: (e) => {
+              const { name, value } = e.target;
+              if (/^\d*$/.test(value) && value.length <= 10) {
+                formik.setFieldValue(name, value);
+              }
+            },
+            handleBlur: formik.handleBlur,
+            values: formik.values,
+            errors: formik.errors,
+            touched: formik.touched,
+          }}
         />
         <SelectInput
           label="Location"
@@ -327,7 +327,7 @@ export default function UserDetailsForm() {
 
       {/* Form Buttons */}
       <FormActionButtons
-        onPrevious={() => navigate(`/terms${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`)}
+        onPrevious={() => navigate(`/terms${partyCode ? `?partyCode=${partyCode}` : ''}`)}
         onSaveNext={handleSaveAndNext}
         onSave={formik.handleSubmit}
         onReset={formik.handleReset}

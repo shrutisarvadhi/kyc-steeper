@@ -1,4 +1,4 @@
-const TextInput = ({ label, name, formik, placeholder, type = "text", required = false, maxLength }) => (
+const TextInput = ({ label, name, formik, placeholder, type = "text", required = false, maxLength, readOnly = false, disabled = false, }) => (
   <div className="flex flex-col">
     <label className="text-sm font-medium text-gray-700">
       {label} {required && <span className="text-red-500">*</span>}
@@ -11,6 +11,8 @@ const TextInput = ({ label, name, formik, placeholder, type = "text", required =
       onChange={formik.handleChange}
       onBlur={formik.handleBlur}
       maxLength={maxLength}  
+      readOnly={readOnly}  
+      disabled={disabled} 
       className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none"
     />
     {formik.touched[name] && formik.errors[name] && (

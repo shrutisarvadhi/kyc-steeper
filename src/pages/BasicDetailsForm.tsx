@@ -1,24 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import { db } from '../../Database/firebase';
-import { collection, addDoc, doc, setDoc, getDoc } from 'firebase/firestore';
+import { db } from '../Database/firebase';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import FormActionButtons from '../FormComponents/FormActionButton';
-import TextInput from '../FormComponents/TextInput';
-import SelectInput from '../FormComponents/SelectInput';
-import DateInput from '../FormComponents/DateInput';
-import TextareaInput from '../FormComponents/TextareaInput';
-import CheckboxInput from '../FormComponents/CheckboxInput';
-import { usePartyCode } from '../../Contexts/PartyCodeContext';
-import { useFormState } from '../../Contexts/FormStateContext';
+
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState, AppDispatch } from '../store/store';
+import { setBasicDetails } from '../store/slices/basicDetailsSlice';
+import { setPartyCode, setCurrentStep, setIsEditing } from '../store/slices/kycSlice';
+import TextInput from '../Components/FormComponents/TextInput';
+import SelectInput from '../Components/FormComponents/SelectInput';
+import TextareaInput from '../Components/FormComponents/TextareaInput';
+import DateInput from '../Components/FormComponents/DateInput';
+import CheckboxInput from '../Components/FormComponents/CheckboxInput';
+import FormActionButtons from '../Components/FormComponents/FormActionButton';
 
 const containerClass = "bg-white p-6 border border-gray-200 rounded-lg shadow-sm";
 const sectionTitleClass = "text-lg font-semibold mb-4";
 const gridClass = "grid grid-cols-1 md:grid-cols-4 gap-4";
 const gridHalfClass = "grid grid-cols-1 md:grid-cols-2 gap-4";
 
-// Form validation schema using Yup
 const validationSchema = Yup.object({
   partyCode: Yup.string().required('Party Code is required'),
   category: Yup.string().required('Category is required'),
@@ -32,46 +34,30 @@ const validationSchema = Yup.object({
       return domain !== 'spam.com';
     }),
   country: Yup.string().required('Country is required'),
-
   mobile: Yup.string()
     .matches(/^[0-9]{10}$/, 'Invalid mobile number')
-    .notRequired()
-    .nullable()
-    .test('optional-valid', 'Invalid mobile number', function (value) {
-      return !value || /^[0-9]{10}$/.test(value);
-    }),
-
-  department: Yup.string().notRequired(),
-
+    .nullable(),
+  department: Yup.string().nullable(),
   phone: Yup.string()
-    .nullable()
-    .test('valid-phone', 'Invalid phone number', function (value) {
-      return !value || /^[0-9]{10}$/.test(value);
-    }),
-
+    .matches(/^[0-9]{10}$/, 'Invalid phone number')
+    .nullable(),
   fax: Yup.string()
-    .nullable()
-    .test('valid-fax', 'Invalid fax number', function (value) {
-      return !value || /^[0-9]{10}$/.test(value);
-    }),
-
+    .matches(/^[0-9]{10}$/, 'Invalid fax number')
+    .nullable(),
   primaryContact: Yup.string()
-    .matches(/^[0-9]{10}$/, 'Primary Contact must be exactly 10 digits'),
+    .matches(/^[0-9]{10}$/, 'Primary Contact must be exactly 10 digits')
+    .nullable(), // Made optional to match console log
   secondaryEmail: Yup.string()
-    .nullable()
-    .test('valid-secondary-email', 'Invalid email', function (value) {
-      return !value || Yup.string().email().isValidSync(value);
-    }),
-
+    .email('Invalid email')
+    .nullable(),
   gstNo: Yup.string()
     .nullable()
     .transform((value) => (value ? value.toUpperCase().trim() : value))
-    .length(15, 'GST number must be exactly 15 characters formate:22AAAAA0000A1Z5')
+    .length(15, 'GST number must be exactly 15 characters format: 22AAAAA0000A1Z5')
     .matches(
       /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/,
       'Invalid GST number format'
     ),
-
   birthDate: Yup.date()
     .nullable()
     .max(new Date(), 'Birth Date cannot be in the future'),
@@ -82,16 +68,18 @@ const validationSchema = Yup.object({
   active: Yup.boolean(),
 });
 
-
 export default function BasicDetailsForm() {
   const navigate = useNavigate();
-  const { state, dispatch } = useFormState();
+  const dispatch = useDispatch<AppDispatch>();
+  const basicDetails = useSelector((state: RootState) => state.basicDetails);
+  const isEditing = useSelector((state: RootState) => state.kyc.isEditing);
+  const isSaveAndNextRef = useRef(false);
   const [searchParams] = useSearchParams();
   const partyCodeFromUrl = searchParams.get('partyCode');
   const [loading, setLoading] = useState(!!partyCodeFromUrl);
 
   const formik = useFormik({
-    initialValues: state.basic || {
+    initialValues: basicDetails || {
       partyCode: partyCodeFromUrl || '',
       category: '',
       companyIndividual: '',
@@ -116,30 +104,24 @@ export default function BasicDetailsForm() {
     validationSchema,
     onSubmit: async (values) => {
       console.log('🚀 ON SUBMIT CALLED!', values);
-
       try {
-        const partyCode = state.isEditing ? partyCodeFromUrl : values.partyCode;
+        const partyCode = isEditing ? partyCodeFromUrl : values.partyCode;
         if (!partyCode) {
           alert('Party Code is required.');
           return;
         }
 
-        // In edit mode, ensure document exists
-        if (state.isEditing) {
-          const kycDocRef = doc(db, 'kyc', partyCode);
-          const docSnap = await getDoc(kycDocRef);
-          if (!docSnap.exists()) {
-            alert('No existing record found for this Party Code.');
-            navigate('/users');
-            return;
-          }
-        } else {
-          // Only create parent doc for new records
-          const kycDocRef = doc(db, 'kyc', partyCode);
-          const docSnap = await getDoc(kycDocRef);
-          if (!docSnap.exists()) {
-            await setDoc(kycDocRef, { createdAt: new Date() });
-          }
+        const kycDocRef = doc(db, 'kyc', partyCode);
+        const docSnap = await getDoc(kycDocRef);
+
+        if (isEditing && !docSnap.exists()) {
+          alert('No existing record found for this Party Code.');
+          navigate('/users');
+          return;
+        }
+
+        if (!docSnap.exists()) {
+          await setDoc(kycDocRef, { createdAt: new Date() });
         }
 
         await setDoc(
@@ -148,34 +130,38 @@ export default function BasicDetailsForm() {
           { merge: true }
         );
 
-        dispatch({ type: 'SET_BASIC', payload: values });
-        dispatch({ type: 'SET_PARTY_CODE', payload: partyCode });
-        dispatch({ type: 'SET_CURRENT_STEP', payload: 'terms' });
+        dispatch(setBasicDetails(values));
+        dispatch(setPartyCode(partyCode));
+        dispatch(setCurrentStep('terms'));
+
         alert('Basic Details saved successfully!');
+        if (isSaveAndNextRef.current) {
+          console.log('Navigating to terms page with partyCode:', partyCode);
+          navigate(`/terms?partyCode=${partyCode}`, { replace: true });
+        }
       } catch (error) {
         console.error('Error saving form data to Firebase:', error);
         alert('Failed to save Basic Details.');
+      } finally {
+        isSaveAndNextRef.current = false;
       }
     },
   });
 
   const handleSaveAndNext = async () => {
-    const errors = await formik.validateForm();
+    isSaveAndNextRef.current = true;
+    await formik.validateForm();
     formik.setTouched(
       Object.keys(formik.values).reduce((acc, key) => ({ ...acc, [key]: true }), {}),
-      true
+      false
     );
 
-    if (Object.keys(errors).length === 0) {
-      try {
-        await formik.submitForm();
-        navigate(`/terms${partyCodeFromUrl ? `?partyCode=${partyCodeFromUrl}` : ''}`);
-      } catch (error) {
-        console.error('Error during form submission:', error);
-        alert('Failed to save and proceed.');
-      }
+    if (Object.keys(formik.errors).length === 0) {
+      await formik.submitForm();
     } else {
-      console.warn('Validation errors:', errors);
+      console.warn('Validation errors:', formik.errors);
+      alert('Please fix the form errors before proceeding.');
+      isSaveAndNextRef.current = false;
     }
   };
 
@@ -198,7 +184,6 @@ export default function BasicDetailsForm() {
         const basicSnap = await getDoc(doc(db, 'kyc', partyCodeFromUrl, 'BasicDetails', 'BasicDetails'));
         const basicData = basicSnap.exists() ? basicSnap.data() : {};
 
-        // Initialize all fields to avoid undefined values
         const initializedData = {
           partyCode: basicData.partyCode || partyCodeFromUrl,
           category: basicData.category || '',
@@ -221,10 +206,10 @@ export default function BasicDetailsForm() {
           active: basicData.active || false,
         };
 
-        dispatch({ type: 'SET_BASIC', payload: initializedData });
-        dispatch({ type: 'SET_PARTY_CODE', payload: partyCodeFromUrl });
-        dispatch({ type: 'SET_IS_EDITING', payload: true });
-        dispatch({ type: 'SET_CURRENT_STEP', payload: 'basic' });
+        dispatch(setBasicDetails(initializedData));
+        dispatch(setPartyCode(partyCodeFromUrl));
+        dispatch(setIsEditing(true));
+        dispatch(setCurrentStep('basic'));
         setLoading(false);
       } catch (error) {
         console.error('Error loading Basic Details:', error);
@@ -243,7 +228,6 @@ export default function BasicDetailsForm() {
   return (
     <form onSubmit={formik.handleSubmit}>
       <div className={containerClass}>
-        {/* Category Details Section */}
         <div className="mb-6">
           <h3 className={sectionTitleClass}>Category Details</h3>
           <div className={gridClass}>
@@ -253,8 +237,8 @@ export default function BasicDetailsForm() {
               type="text"
               formik={formik}
               required
+              readOnly={isEditing}
             />
-
             <SelectInput
               label="Category"
               name="category"
@@ -262,7 +246,6 @@ export default function BasicDetailsForm() {
               formik={formik}
               required
             />
-
             <TextInput
               label="Company/Individual"
               name="companyIndividual"
@@ -270,14 +253,12 @@ export default function BasicDetailsForm() {
               formik={formik}
               required
             />
-
             <SelectInput
               label="Business Type"
               name="businessType"
               options={['Proprietorship', 'Limited Company']}
               formik={formik}
             />
-
             <TextInput
               label="GST No"
               name="gstNo"
@@ -285,19 +266,12 @@ export default function BasicDetailsForm() {
               maxLength={15}
               formik={{
                 ...formik,
-                handleChange: (e) => {
-                  const { name, value } = e.target;
-                  formik.setFieldValue(name, value.toUpperCase());
-                  if (value.length <= 15) {
-                    formik.setFieldValue(name, value.toUpperCase());
-                  }
-                }
+                handleChange: (e) => formik.setFieldValue('gstNo', e.target.value.toUpperCase()),
               }}
             />
           </div>
         </div>
 
-        {/* Contact Details Section */}
         <div className="mb-6">
           <h3 className={sectionTitleClass}>Contact Details</h3>
           <div className={gridClass}>
@@ -308,18 +282,13 @@ export default function BasicDetailsForm() {
               formik={{
                 ...formik,
                 handleChange: (e) => {
-                  const { name, value } = e.target;
+                  const value = e.target.value;
                   if (/^\d*$/.test(value) && value.length <= 10) {
-                    formik.setFieldValue(name, value);
+                    formik.setFieldValue('primaryContact', value);
                   }
                 },
-                handleBlur: formik.handleBlur,
-                values: formik.values,
-                errors: formik.errors,
-                touched: formik.touched,
               }}
             />
-
             <TextInput
               label="Primary Email"
               name="primaryEmail"
@@ -327,14 +296,12 @@ export default function BasicDetailsForm() {
               formik={formik}
               required
             />
-
             <TextInput
               label="Secondary Email"
               name="secondaryEmail"
               type="email"
               formik={formik}
             />
-
             <DateInput
               label="Birth Date"
               name="birthDate"
@@ -342,7 +309,6 @@ export default function BasicDetailsForm() {
             />
           </div>
 
-          {/* Country, Mobile, Phone, Fax */}
           <div className={`${gridClass} mt-4`}>
             <SelectInput
               label="Country"
@@ -351,7 +317,6 @@ export default function BasicDetailsForm() {
               formik={formik}
               required
             />
-
             <TextInput
               label="Mobile No."
               name="mobile"
@@ -359,18 +324,13 @@ export default function BasicDetailsForm() {
               formik={{
                 ...formik,
                 handleChange: (e) => {
-                  const { name, value } = e.target;
+                  const value = e.target.value;
                   if (/^\d*$/.test(value) && value.length <= 10) {
-                    formik.setFieldValue(name, value);
+                    formik.setFieldValue('mobile', value);
                   }
                 },
-                handleBlur: formik.handleBlur,
-                values: formik.values,
-                errors: formik.errors,
-                touched: formik.touched,
               }}
             />
-
             <TextInput
               label="Phone No."
               name="phone"
@@ -378,18 +338,13 @@ export default function BasicDetailsForm() {
               formik={{
                 ...formik,
                 handleChange: (e) => {
-                  const { name, value } = e.target;
+                  const value = e.target.value;
                   if (/^\d*$/.test(value) && value.length <= 10) {
-                    formik.setFieldValue(name, value);
+                    formik.setFieldValue('phone', value);
                   }
                 },
-                handleBlur: formik.handleBlur,
-                values: formik.values,
-                errors: formik.errors,
-                touched: formik.touched,
               }}
             />
-
             <TextInput
               label="Fax No."
               name="fax"
@@ -397,21 +352,16 @@ export default function BasicDetailsForm() {
               formik={{
                 ...formik,
                 handleChange: (e) => {
-                  const { name, value } = e.target;
+                  const value = e.target.value;
                   if (/^\d*$/.test(value) && value.length <= 10) {
-                    formik.setFieldValue(name, value);
+                    formik.setFieldValue('fax', value);
                   }
                 },
-                handleBlur: formik.handleBlur,
-                values: formik.values,
-                errors: formik.errors,
-                touched: formik.touched,
               }}
             />
           </div>
         </div>
 
-        {/* Other Details Section */}
         <div className="mb-6">
           <h3 className={sectionTitleClass}>Other Details</h3>
           <div className={gridHalfClass}>
@@ -421,26 +371,22 @@ export default function BasicDetailsForm() {
               options={['Amit', 'Rahul']}
               formik={formik}
             />
-
             <SelectInput
               label="Assistant Sales Person"
               name="assistantSalesPerson"
               options={['Sunil', 'Vikas']}
               formik={formik}
             />
-
             <TextareaInput
               label="Remark"
               name="remark"
               formik={formik}
             />
-
             <DateInput
               label="Registration Date"
               name="registrationDate"
               formik={formik}
             />
-
             <SelectInput
               label="Department"
               name="department"
@@ -450,19 +396,17 @@ export default function BasicDetailsForm() {
           </div>
         </div>
 
-        {/* Active Checkbox */}
         <CheckboxInput
           label="Active (Please check the box if the user should be marked as Active.)"
           name="active"
           formik={formik}
         />
 
-        {/* Submit Buttons */}
         <FormActionButtons
           onSave={formik.handleSubmit}
           onSaveNext={handleSaveAndNext}
           onReset={formik.handleReset}
-          onClose={() => console.log('Close clicked')}  
+          onClose={() => navigate('/users')}
           showPrevious={false}
           showClose={true}
           closeLabel="Close"

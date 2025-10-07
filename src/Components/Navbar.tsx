@@ -1,14 +1,14 @@
-// src/Components/Navbar.tsx
 import { Link, useLocation } from 'react-router-dom';
-import { useFormState } from '../Contexts/FormStateContext';
+import { useSelector } from 'react-redux';
+import { RootState } from '../store/store';
 
 const stepOrder = ['basic', 'terms', 'user', 'address', 'users'];
 
 export default function Navbar() {
   const location = useLocation();
-  const { state } = useFormState();
+  const { partyCode, currentStep } = useSelector((state: RootState) => state.kyc);
 
-  const currentStepIndex = stepOrder.indexOf(state.currentStep);
+  const currentStepIndex = stepOrder.indexOf(currentStep);
 
   const tabs = [
     { name: 'Basic Details', path: '/', step: 'basic' },
@@ -25,6 +25,7 @@ export default function Navbar() {
           location.pathname === tab.path ||
           (location.pathname === '/' && tab.path === '/');
         const tabStepIndex = stepOrder.indexOf(tab.step);
+        // Enable "All Users Details" tab always; disable other tabs if beyond current step
         const isDisabled = tab.step !== 'users' && tabStepIndex > currentStepIndex;
 
         return isDisabled ? (
@@ -37,7 +38,7 @@ export default function Navbar() {
         ) : (
           <Link
             key={tab.path}
-            to={`${tab.path}${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`}
+            to={`${tab.path}${partyCode ? `?partyCode=${partyCode}` : ''}`}
             className={`py-4 px-1 border-b-2 text-sm font-medium ${
               isActive
                 ? 'border-blue-500 text-gray-900'

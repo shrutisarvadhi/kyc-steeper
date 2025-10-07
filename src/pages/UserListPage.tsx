@@ -1,25 +1,22 @@
-// src/Components/Forms/UserListPage.tsx
-import React, { useState, useEffect } from 'react';
-import { db } from '../../Database/firebase';
+import React, { useEffect } from 'react';
+import { db } from '../Database/firebase';
 import { collection, getDocs, doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import { useFormState } from '../../Contexts/FormStateContext';
 import * as XLSX from 'xlsx';
 import { useDispatch, useSelector } from 'react-redux';
-import { RootState } from '../../redux/store';
-import { setIsEditing, setCurrentStep, setPartyCode, resetAll } from '../../redux/slices/kycSlice';
-
+import { RootState, AppDispatch } from '../store/store';
+import { setIsEditing, setCurrentStep, setPartyCode, resetAll } from '../store/slices/kycSlice';
+import { setUsers, setLoading, deleteUser } from '../store/slices/userListSlice';
 
 const UserListPage = () => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  // const { dispatch } = useFormState();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
+  const { users, loading } = useSelector((state: RootState) => state.userList);
 
   useEffect(() => {
     const fetchUsers = async () => {
       try {
+        dispatch(setLoading(true));
         const kycSnapshot = await getDocs(collection(db, 'kyc'));
 
         const usersData = await Promise.all(
@@ -57,18 +54,18 @@ const UserListPage = () => {
               country: addressData.country || '-',
               zipCode: addressData.zipCode || '-',
               defaultAddress: addressData.defaultAddress || false,
-              createdAt: basicData.createdAt || '-',
-              updatedAt: basicData.updatedAt || '-',
+              createdAt: basicData.createdAt ? basicData.createdAt.toDate().toISOString() : '-', // Convert Timestamp to ISO string
+              updatedAt: basicData.updatedAt ? basicData.updatedAt.toDate().toISOString() : '-', // Convert Timestamp to ISO string
             };
           })
         );
 
-        setUsers(usersData);
+        dispatch(setUsers(usersData));
       } catch (error) {
         console.error('Error fetching users:', error);
         alert('Failed to load users. Please try again.');
+        dispatch(setLoading(false));
       } finally {
-        setLoading(false);
         dispatch(resetAll());
       }
     };
@@ -76,14 +73,14 @@ const UserListPage = () => {
     fetchUsers();
   }, [dispatch]);
 
-  const handleEdit = (id) => {
+  const handleEdit = (id: string) => {
     dispatch(setIsEditing(true));
     dispatch(setCurrentStep('basic'));
     dispatch(setPartyCode(id));
     navigate(`/?partyCode=${id}`);
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure? This deletes the entire KYC record.')) return;
 
     try {
@@ -99,7 +96,7 @@ const UserListPage = () => {
       );
 
       await deleteDoc(kycRef);
-      setUsers((prev) => prev.filter((user) => user.id !== id));
+      dispatch(deleteUser(id));
       alert('KYC record deleted successfully!');
     } catch (error) {
       console.error('Error deleting record:', error);

@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useFormik } from 'formik';
 import * as Yup from 'yup';
-import FormActionButtons from '../FormComponents/FormActionButton';
-import TextInput from '../FormComponents/TextInput';
-import SelectInput from '../FormComponents/SelectInput';
-import CheckboxInput from '../FormComponents/CheckboxInput';
+
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { db } from "../../Database/firebase";
+import { db } from "../Database/firebase";
 import { doc, setDoc, getDoc } from "firebase/firestore";
-import { usePartyCode } from "../../Contexts/PartyCodeContext";
-import { useFormState } from '../../Contexts/FormStateContext';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState, AppDispatch } from '../store/store';
+import { setCurrentStep, setIsEditing } from '../store/slices/kycSlice';
+import { setAddressDetails } from '../store/slices/addressDetailsSlice';
+import SelectInput from '../Components/FormComponents/SelectInput';
+import TextInput from '../Components/FormComponents/TextInput';
+import CheckboxInput from '../Components/FormComponents/CheckboxInput';
+import FormActionButtons from '../Components/FormComponents/FormActionButton';
 
 // --- Tailwind class strings ---
 const containerClass = "bg-white p-6 rounded-lg shadow-sm border border-gray-200";
@@ -21,9 +24,9 @@ const validationSchema = Yup.object({
   addressType: Yup.string().required("Type is required"),
   country: Yup.string().required("Country is required"),
   city: Yup.string().required("City is required"),
-
   companyName: Yup.string(),
   contactNo: Yup.string()
+    .nullable()
     .matches(/^[0-9]{10}$/, 'Contact must be exactly 10 digits'),
   unit: Yup.string(),
   building: Yup.string(),
@@ -36,19 +39,20 @@ const validationSchema = Yup.object({
     .test('valid-zip', 'Zip Code must be numeric', value =>
       !value || /^[0-9]{4,10}$/.test(value)
     ),
-
   defaultAddress: Yup.boolean(),
 });
 
 export default function AddressDetailsForm() {
   const navigate = useNavigate();
-  const { state, dispatch } = useFormState();
+  const dispatch = useDispatch<AppDispatch>();
+  const addressDetails = useSelector((state: RootState) => state.addressDetails);
+  const { partyCode, isEditing } = useSelector((state: RootState) => state.kyc);
   const [searchParams] = useSearchParams();
   const partyCodeFromUrl = searchParams.get('partyCode');
   const [loading, setLoading] = useState(!!partyCodeFromUrl);
 
   const formik = useFormik({
-    initialValues: state.address || {
+    initialValues: addressDetails || {
       addressType: '',
       companyName: '',
       contactNo: '',
@@ -68,20 +72,20 @@ export default function AddressDetailsForm() {
     onSubmit: async (values) => {
       console.log('✅ Address Submitted:', values);
 
-      const partyCode = state.partyCode || partyCodeFromUrl;
-      if (!partyCode) {
+      const effectivePartyCode = partyCode || partyCodeFromUrl;
+      if (!effectivePartyCode) {
         alert('No Party Code found! Please go back and fill in Basic Details.');
         navigate('/');
         return;
       }
 
       try {
-        const addressDetailsRef = doc(db, 'kyc', partyCode, 'AddressDetails', 'AddressDetails');
+        const addressDetailsRef = doc(db, 'kyc', effectivePartyCode, 'AddressDetails', 'AddressDetails');
         await setDoc(addressDetailsRef, { ...values, updatedAt: new Date() }, { merge: true });
 
-        dispatch({ type: 'SET_ADDRESS', payload: values });
-        dispatch({ type: 'SET_CURRENT_STEP', payload: 'users' });
-        dispatch({ type: 'SET_IS_EDITING', payload: false });
+        dispatch(setAddressDetails(values));
+        dispatch(setCurrentStep('users'));
+        dispatch(setIsEditing(false));
         alert('Address Details saved successfully!');
       } catch (error) {
         console.error('Error saving AddressDetails to Firebase:', error);
@@ -103,7 +107,7 @@ export default function AddressDetailsForm() {
       formik.setSubmitting(true);
       try {
         await formik.submitForm();
-        navigate(`/users${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`);
+        navigate(`/users${partyCode ? `?partyCode=${partyCode}` : ''}`);
       } catch (error) {
         console.error('Error during form submission:', error);
         alert('Failed to save and proceed.');
@@ -117,7 +121,7 @@ export default function AddressDetailsForm() {
 
   useEffect(() => {
     const fetchExistingData = async () => {
-      if (!partyCodeFromUrl || !state.isEditing) {
+      if (!partyCodeFromUrl || !isEditing) {
         setLoading(false);
         return;
       }
@@ -150,7 +154,7 @@ export default function AddressDetailsForm() {
           defaultAddress: addressData.defaultAddress || false,
         };
 
-        dispatch({ type: 'SET_ADDRESS', payload: initializedData });
+        dispatch(setAddressDetails(initializedData));
         setLoading(false);
       } catch (error) {
         console.error('Error loading Address Details:', error);
@@ -160,7 +164,7 @@ export default function AddressDetailsForm() {
     };
 
     fetchExistingData();
-  }, [partyCodeFromUrl, state.isEditing, dispatch, navigate]);
+  }, [partyCodeFromUrl, isEditing, dispatch, navigate]);
 
   if (loading) {
     return <div className="p-6 text-center">Loading Address Details...</div>;
@@ -282,7 +286,7 @@ export default function AddressDetailsForm() {
 
       {/* Action Buttons */}
       <FormActionButtons
-        onPrevious={() => navigate(`/user${state.partyCode ? `?partyCode=${state.partyCode}` : ''}`)}
+        onPrevious={() => navigate(`/user${partyCode ? `?partyCode=${partyCode}` : ''}`)}
         onSaveNext={handleSaveAndNext}
         onSave={formik.handleSubmit}
         onReset={formik.handleReset}

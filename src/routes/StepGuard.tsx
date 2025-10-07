@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
-import { useFormState } from '../Contexts/FormStateContext';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState, AppDispatch } from '../store/store';
+import { setIsEditing } from '../store/slices/kycSlice';
 
 const stepOrder = ['basic', 'terms', 'user', 'address', 'users'];
 
 export default function StepGuard({ step, children }) {
-  const { state } = useFormState();
+  const dispatch = useDispatch<AppDispatch>();
+  const { currentStep } = useSelector((state: RootState) => state.kyc);
   const [searchParams] = useSearchParams();
   const partyCode = searchParams.get('partyCode');
   const [loading, setLoading] = useState(!!partyCode);
 
   useEffect(() => {
+    if (step === 'users') {
+      dispatch(setIsEditing(false));
+    }
     setLoading(false);
-  }, []);
+  }, [step, dispatch]);
 
   if (step === 'users') {
     return children;
@@ -26,13 +32,13 @@ export default function StepGuard({ step, children }) {
     );
   }
 
-  const currentStepIndex = stepOrder.indexOf(state.currentStep);
+  const currentStepIndex = stepOrder.indexOf(currentStep);
   const requestedStepIndex = stepOrder.indexOf(step);
-
   const allowed = requestedStepIndex <= currentStepIndex;
 
   if (!allowed) {
-    return <Navigate to={`/${state.currentStep}${partyCode ? `?partyCode=${partyCode}` : ''}`} replace />;
+    const redirectStep = currentStep === 'basic' ? '' : currentStep;
+    return <Navigate to={`/${redirectStep}${partyCode ? `?partyCode=${partyCode}` : ''}`} replace />;
   }
 
   return children;
